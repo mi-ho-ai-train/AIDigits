@@ -2,6 +2,8 @@ package com.example.aidigits;
 
 import android.app.Activity;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.util.Log;
 
 import org.tensorflow.lite.DataType;
@@ -19,6 +21,7 @@ import org.tensorflow.lite.support.tensorbuffer.TensorBuffer;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.FloatBuffer;
 import java.nio.MappedByteBuffer;
 import java.util.Arrays;
 import java.util.List;
@@ -47,10 +50,12 @@ public class ImageClassifier {
     private final TensorProcessor probabilityProcessor;
 
     private List<String> LABELS = Arrays.asList("0", "1", "2", "3", "4", "5", "6", "7", "8", "9");
+    private int color;
 
-    private static class Probability {
+    public static class Probability {
         private String title;
         private float probability;
+        private Bitmap bitmap;
 
         public Probability(String title, float probability) {
             this.title = title;
@@ -63,6 +68,19 @@ public class ImageClassifier {
 
         public float getProbability() {
             return probability;
+        }
+
+        public Bitmap getBitmap() {
+            return bitmap;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("[%s:%f]", title, probability);
+        }
+
+        public void setBitmap(Bitmap bitmap) {
+            this.bitmap = bitmap;
         }
     }
 
@@ -104,57 +122,71 @@ public class ImageClassifier {
     }
 
     private TensorImage loadImage(final Bitmap bitmap, int sensorOrientation) {
-        // Loads bitmap into a TensorImage.
-        float[] byteBuffer = convertBitmapToFloats(bitmap);
         int[] shape = new int[2];
         shape[0] = modelImageSizeX;
         shape[1] = modelImageSizeY;
 
-        inputImageBuffer.load(byteBuffer, shape);
-
-        // Creates processor for the TensorImage.
         int cropSize = Math.min(bitmap.getWidth(), bitmap.getHeight());
         Log.i(LOG_TAG, String.format("load image x=%d, y=%d", bitmap.getWidth(), bitmap.getHeight()));
         Log.i(LOG_TAG, String.format("convert image to ImageX=%d, ImageY=%d", modelImageSizeX, modelImageSizeY));
 
-        int numRoration = sensorOrientation / 90;
+        int rotationInQuaters = sensorOrientation / 90;
+        DataType dataType = DataType.FLOAT32;
+        TensorImage sourceImage = new TensorImage(dataType);
+        sourceImage.load(bitmap);
         ImageProcessor imageProcessor =
                 new ImageProcessor.Builder()
                         .add(new ResizeWithCropOrPadOp(cropSize, cropSize))
                         .add(new ResizeOp(modelImageSizeX, modelImageSizeY, ResizeOp.ResizeMethod.NEAREST_NEIGHBOR))
-                        .add(new Rot90Op(numRoration))
-                        .add(createPreprocessNormalizer())
+                        .add(new Rot90Op(rotationInQuaters))
+                        //.add(createPreprocessNormalizer())
                         .build();
-        TensorImage tensorImage = imageProcessor.process(inputImageBuffer);
-        int[] tensorShape = tensorImage.getTensorBuffer().getShape();
-        Log.i(LOG_TAG, String.format("tensorImage X=%d, Y=%d", tensorShape[0], tensorShape[1]));
+        TensorImage tensorImage = imageProcessor.process(sourceImage);
         return tensorImage;
     }
 
-    private float[] convertBitmapToFloats(Bitmap bitmap) {
-        int maxX = bitmap.getWidth();
-        int maxY = bitmap.getHeight();
-        Log.i(LOG_TAG, String.format("convertBitmapToFloats X=%d, Y=%d", maxX, maxY));
+    private FloatBuffer convertTensorImageToFloatBuffer(TensorImage image) {
+        int[] shape = image.getTensorBuffer().getShape();
+        Log.i(LOG_TAG, String.format("convertBitmapToFloats shape 0=%d, 1=%d, 2=%d", shape[0], shape[1], shape[2]));
+        int maxX = shape[0];
+        int maxY = shape[1];
+        float[] buffer = image.getTensorBuffer().getFloatArray();
+        Log.i(LOG_TAG, String.format("convertBitmapToFloats X=%d, Y=%d, size buffer = %d", maxX, maxY, buffer.length));
+
         float[] result = new float[maxX * maxY];
         for (int x = 0; x < maxX; x++) {
             for (int y = 0; y < maxY; y++) {
-                int color = bitmap.getPixel(x, y);
-                int r = color >> 16 & 0xFF;
-                int g = color >> 8 & 0xFF;
-                int b = color & 0xFF;
+                int i = (x + y * maxX) * 3;
+                float r = buffer[i];
+                float g = buffer[i + 1];
+                float b = buffer[i + 2];
 
                 float greyColor = (r + g + b) / 3.0f / 255.0f;
                 result[x + y * maxX] = greyColor;
             }
         }
         Log.i(LOG_TAG, String.format("convertedBitmapToFloats size=%d", result.length));
-        return result;
+        FloatBuffer floatBuffer = FloatBuffer.wrap(result);
+        return floatBuffer;
+    }
+
+    private Bitmap convertFloatBufferToBitmap(FloatBuffer floatBuffer) {
+        Bitmap bitmap = Bitmap.createBitmap(modelImageSizeX, modelImageSizeY, Bitmap.Config.ARGB_8888);
+        for (int x = 0; x < modelImageSizeX; x++) {
+            for (int y = 0; y < modelImageSizeY; y++) {
+                int c = (int) (256 * floatBuffer.get(x + y * modelImageSizeX));
+                int color = Color.rgb(c, c, c);
+                bitmap.setPixel(x, y, color);
+            }
+        }
+        return bitmap;
     }
 
     private static Probability calculateTopProbability(Map<String, Float> labelProb) {
         String maxLabel = "";
         float maxProbability = 0;
         for (Map.Entry<String, Float> entry : labelProb.entrySet()) {
+            Log.i(LOG_TAG, String.format("Probability key=%s, entry=%f", entry.getKey(), entry.getValue()));
             if (entry.getValue().floatValue() > maxProbability) {
                 maxProbability = entry.getValue().floatValue();
                 maxLabel = entry.getKey();
@@ -166,15 +198,17 @@ public class ImageClassifier {
 
     public Probability recognizeImage(final Bitmap bitmap, int sensorOrientation) {
         inputImageBuffer = loadImage(bitmap, sensorOrientation);
-
-        tfLite.run(inputImageBuffer.getBuffer(), outputProbabilityBuffer.getBuffer().rewind());
+        FloatBuffer floatBuffer = convertTensorImageToFloatBuffer(inputImageBuffer);
+        tfLite.run(floatBuffer, outputProbabilityBuffer.getBuffer().rewind());
 
         // Gets the map of label and probability.
         Map<String, Float> labeledProbability =
                 new TensorLabel(LABELS, probabilityProcessor.process(outputProbabilityBuffer))
                         .getMapWithFloatValue();
 
-        return calculateTopProbability(labeledProbability);
+        Probability probability = calculateTopProbability(labeledProbability);
+        probability.setBitmap(convertFloatBufferToBitmap(floatBuffer));
+        return probability;
     }
 
     public void close() {

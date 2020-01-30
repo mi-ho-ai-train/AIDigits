@@ -5,26 +5,27 @@ import androidx.appcompat.app.AppCompatActivity;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_IMAGE_CAPTURE = 1;
     private static final String LOG_TAG = "Digits.Main";
-    private static final String PATH_TO_MODEL = "digits.tflite";
+    private static final String MODEL_FILENAME = "digits.tflite";
+    public static final String TEST_FILE_NAME = "Test.JPG";
 
     ImageView imageView;
     Bitmap imageBitmap;
@@ -54,23 +55,48 @@ public class MainActivity extends AppCompatActivity {
         dispatchTakePictureIntent();
     }
 
+    public void onClickTestButton(View view) {
+        Log.i(LOG_TAG, "Test Button clicked");
+        Bitmap testBitmap;
+        try {
+            InputStream ims = getAssets().open(TEST_FILE_NAME);
+            Log.i(LOG_TAG, "Asset opened");
+            testBitmap = BitmapFactory.decodeStream(ims);
+        }
+        catch(IOException e) {
+            Log.e(LOG_TAG, Log.getStackTraceString(e));
+            return;
+        }
+        Log.i(LOG_TAG, String.format("Analyze Test Image of size (%d,%d)", testBitmap.getWidth(), testBitmap.getHeight()));
+        analyzeImage(testBitmap);
+    }
 
     public void onClickAnalyzeButton(View view) {
         Log.i(LOG_TAG, "Analyze Button clicked");
+        analyzeImage(imageBitmap);
+    }
+
+    private void analyzeImage(Bitmap imageBitmap) {
         try {
+            Log.i(LOG_TAG, "Analyze Image");
             ImageClassifier classifier = new ImageClassifier(this, 1, loadModel());
-            classifier.recognizeImage(imageBitmap, 0);
+            Log.i(LOG_TAG, "Classify Image");
+            ImageClassifier.Probability probability =  classifier.recognizeImage(imageBitmap, 0);
+            TextView textView = findViewById(R.id.textView);
+            textView.setText(String.format("Probability: %s", probability.toString()));
+            ImageView imageView = findViewById(R.id.imageView);
+            imageView.setImageBitmap(probability.getBitmap());
+            imageView.invalidate();
         } catch (IOException e) {
             Log.e(LOG_TAG, Log.getStackTraceString(e));
         }
-
     }
 
     private ByteBuffer loadModel() {
         ByteBuffer tfLiteModel = ByteBuffer.allocate(0);
         AssetManager assetManager = getAssets();
         try {
-            InputStream input = assetManager.open(PATH_TO_MODEL);
+            InputStream input = assetManager.open(MODEL_FILENAME);
             int size = input.available();
             byte[] bytes = new byte[size];
             int length = input.read(bytes);
