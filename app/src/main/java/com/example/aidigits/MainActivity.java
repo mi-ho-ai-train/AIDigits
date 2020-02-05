@@ -19,17 +19,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Random;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_IMAGE_CAPTURE = 1;
     private static final String LOG_TAG = "Digits.Main";
     private static final String MODEL_FILENAME = "digits.tflite";
-    public static final String TEST_FILE_NAME = "Test.JPG";
+    public static final String[] TEST_FILE_NAMES = {"Digit1b.jpg", "Digit7b.jpg", "Digit8b.jpg"};
 
     ImageView imageView;
     Bitmap imageBitmap;
     Button button;
+    Random rand = new Random();
 
     private void dispatchTakePictureIntent() {
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
@@ -59,11 +61,10 @@ public class MainActivity extends AppCompatActivity {
         Log.i(LOG_TAG, "Test Button clicked");
         Bitmap testBitmap;
         try {
-            InputStream ims = getAssets().open(TEST_FILE_NAME);
+            InputStream ims = getAssets().open(TEST_FILE_NAMES[rand.nextInt(TEST_FILE_NAMES.length)]);
             Log.i(LOG_TAG, "Asset opened");
             testBitmap = BitmapFactory.decodeStream(ims);
-        }
-        catch(IOException e) {
+        } catch (IOException e) {
             Log.e(LOG_TAG, Log.getStackTraceString(e));
             return;
         }
@@ -81,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
             Log.i(LOG_TAG, "Analyze Image");
             ImageClassifier classifier = new ImageClassifier(this, 1, loadModel());
             Log.i(LOG_TAG, "Classify Image");
-            ImageClassifier.Probability probability =  classifier.recognizeImage(imageBitmap, 0);
+            ImageClassifier.Probability probability = classifier.recognizeImage(imageBitmap, 0);
             TextView textView = findViewById(R.id.textView);
             textView.setText(String.format("Probability: %s", probability.toString()));
             ImageView imageView = findViewById(R.id.imageView);

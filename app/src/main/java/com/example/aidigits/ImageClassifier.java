@@ -139,7 +139,6 @@ public class ImageClassifier {
                         .add(new ResizeWithCropOrPadOp(cropSize, cropSize))
                         .add(new ResizeOp(modelImageSizeX, modelImageSizeY, ResizeOp.ResizeMethod.NEAREST_NEIGHBOR))
                         .add(new Rot90Op(rotationInQuaters))
-                        //.add(createPreprocessNormalizer())
                         .build();
         TensorImage tensorImage = imageProcessor.process(sourceImage);
         return tensorImage;
