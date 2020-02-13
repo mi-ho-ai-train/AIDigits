@@ -6,6 +6,12 @@ import android.content.Intent;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -77,7 +83,8 @@ public class MainActivity extends AppCompatActivity {
         analyzeImage(imageBitmap);
     }
 
-    private void analyzeImage(Bitmap imageBitmap) {
+    private void analyzeImage(Bitmap rawImageBitmap) {
+        Bitmap imageBitmap = preprocessImage(rawImageBitmap);
         try {
             Log.i(LOG_TAG, "Analyze Image");
             ImageClassifier classifier = new ImageClassifier(this, 1, loadModel());
@@ -92,6 +99,61 @@ public class MainActivity extends AppCompatActivity {
             Log.e(LOG_TAG, Log.getStackTraceString(e));
         }
     }
+
+    private Bitmap preprocessImage(Bitmap imageBitmap) {
+        // @param contrast 0..10 1 is default
+        // @param brightness -255..255 0 is default
+        int contrast = 1;
+        int brightness = 0;
+        ColorMatrix cm = new ColorMatrix(new float[]
+                {
+                        contrast, 0, 0, 0, brightness,
+                        0, contrast, 0, 0, brightness,
+                        0, 0, contrast, 0, brightness,
+                        0, 0, 0, 1, 0
+                });
+        Bitmap ret = Bitmap.createBitmap(imageBitmap.getWidth(), imageBitmap.getHeight(), imageBitmap.getConfig());
+        Canvas canvas = new Canvas(ret);
+        Paint paint = new Paint();
+        paint.setColorFilter(new ColorMatrixColorFilter(cm));
+        canvas.drawBitmap(imageBitmap, 0, 0, paint);
+        // Black and white
+        int width = imageBitmap.getWidth();
+        int height = imageBitmap.getHeight();
+        // create output bitmap
+        Bitmap bmOut = Bitmap.createBitmap(width, height, imageBitmap.getConfig());
+        // color information
+        int A, RED, G, B;
+        int pixel;
+        for (int x = 0; x < width; ++x) {
+            for (int y = 0; y < height; ++y) {
+                // get pixel color
+                pixel = imageBitmap.getPixel(x, y);
+                A = Color.alpha(pixel);
+                RED = Color.red(pixel);
+                G = Color.green(pixel);
+                B = Color.blue(pixel);
+                int gray = (int) (0.2989 * RED + 0.5870 * G + 0.1140 * B);
+                gray = Math.abs(gray - 255);
+                if (gray < 120) gray = 0;
+                // set new pixel color to output bitmap
+                bmOut.setPixel(x, y, Color.argb(A, gray, gray, gray));
+            }
+        }
+        int newWidth = 28;
+        int newHeight = 28;
+        // calculate the scale - in this case = 0.4f
+        float scaleWidth = ((float) newWidth) / width;
+        float scaleHeight = ((float) newHeight) / height;
+        // createa matrix for the manipulation
+        Matrix matrix = new Matrix();
+        // resize the bit map
+        matrix.postScale(scaleWidth, scaleHeight);
+        // recreate the new Bitmap
+        return Bitmap.createBitmap(bmOut, 0, 0,
+                width, height, matrix, true);
+    }
+
 
     private ByteBuffer loadModel() {
         ByteBuffer tfLiteModel = ByteBuffer.allocate(0);
